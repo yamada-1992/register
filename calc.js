@@ -5,7 +5,7 @@ function count(id, num){
     }
 
     cost = (parseInt(document.getElementById("pudding").textContent) * 300) + (parseInt(document.getElementById("cider_can").textContent) * 300)
-    if(document.getElementById("pudding").textContent < 3){
+    if(parseInt(document.getElementById("pudding").textContent) < 3){
         cost += (document.getElementById("take_out").checked * 50) 
     }
     else{
