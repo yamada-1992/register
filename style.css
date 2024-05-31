@@ -1,0 +1,69 @@
+*{
+    padding: 0;
+    margin: 0;
+}
+
+body{
+    height: 100%;
+}
+
+.container{
+    display: grid;
+    grid-template-rows: 50% 1fr;
+}
+
+#cost_display{
+    font-size: 12rem;
+    transform: scale(-1, -1);
+}
+
+.cost{
+    display: grid;
+    justify-content: center;
+    grid-row: 1/2;
+    height: 100%;
+}
+
+.control{
+    display: grid;
+    justify-content: center;
+    grid-row: 2/2;
+    height: 100%;
+}
+
+
+.pudding, .cider_can{
+    display: flex;
+}
+
+#pudding, #cider_can{
+    padding: 0.5rem 5rem 0 5rem;
+    font-size: 3rem;
+}
+
+.minus{
+    width: 5rem;
+    height: 5rem;
+    background-color: greenyellow;
+    font-size: 3rem;
+}
+
+.plus{
+    width: 5rem;
+    height: 5rem;
+    background-color: red;
+    font-size: 3rem;
+}
+
+.take_out{
+    margin-bottom: 3rem;
+}
+
+label{
+    font-size: 1.2rem;
+}
+
+.submit{
+    padding: 1rem;
+    font-size: 1rem;
+}

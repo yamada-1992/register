@@ -1,0 +1,36 @@
+<html>
+    <head>
+        <link rel="stylesheet" href="style.css">
+        <script src="calc.js"></script>
+    </head>
+    <body>
+        <div class="container">
+            <div class="cost">
+                <h1 id="cost_display">¥0</h1>
+            </div>
+            <div class="control">
+                
+                <h1>プリン</h1>
+                <div class="pudding">
+                    <button class="minus" onclick="count('pudding', -1)">-</button>
+                    <h2 id="pudding">0</h2>
+                    <button class="plus" onclick="count('pudding', 1)">+</button>
+                </div>
+
+
+                <div class="pudding_opt">
+                    <label onclick="count('', 0)"><input type="checkbox" class="take_out" id="take_out">持ち帰り</label>
+                </div>
+
+                <h1>サイダーかん</h1>
+                <div class="cider_can">
+                    <button class="minus" onclick="count('cider_can', -1)">-</button>
+                    <h2 id="cider_can">0</h2>
+                    <button class="plus" onclick="count('cider_can', 1)">+</button>
+                </div>
+
+                <button class="submit" onclick="send()">送信</button>
+            </div>
+        </div>
+    </body>
+</html>
