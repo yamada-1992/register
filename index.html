@@ -2,193 +2,127 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebUSB FeliCa Reader</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Android Web NFC Reader</title>
     <style>
-        body { font-family: sans-serif; max-width: 600px; margin: 20px auto; padding: 20px; background: #f5f5f5; }
-        .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        button { width: 100%; padding: 15px; margin: 10px 0; background: #3498db; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; }
-        button:disabled { background: #bdc3c7; cursor: not-allowed; }
-        #log { background: #2c3e50; color: #ecf0f1; padding: 10px; border-radius: 4px; font-family: monospace; height: 150px; overflow-y: scroll; margin-top: 10px; font-size: 12px; }
-        .result-box { text-align: center; margin-top: 20px; padding: 10px; background: #e8f6f3; border: 1px solid #2ecc71; border-radius: 5px; display: none; }
-        .balance { font-size: 2.5em; font-weight: bold; color: #27ae60; }
-        .target-info { font-size: 0.8em; color: #7f8c8d; margin-bottom: 10px; }
+        body { font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
+        .container { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        h2 { margin-top: 0; font-size: 1.5em; color: #2c3e50; }
+        
+        /* スマホで押しやすいようにボタンを大きく調整 */
+        button { 
+            width: 100%; 
+            padding: 18px; 
+            margin: 15px 0; 
+            background: #3498db; 
+            color: white; 
+            border: none; 
+            border-radius: 8px; 
+            font-size: 18px; 
+            font-weight: bold;
+            cursor: pointer; 
+            transition: background 0.2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        button:active { background: #2980b9; transform: scale(0.98); }
+        button:disabled { background: #bdc3c7; cursor: not-allowed; transform: none; }
+        
+        #log { background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 8px; font-family: monospace; height: 200px; overflow-y: scroll; margin-top: 15px; font-size: 13px; line-height: 1.4; }
+        
+        .result-box { text-align: center; margin-top: 20px; padding: 15px; background: #e8f6f3; border: 2px solid #2ecc71; border-radius: 8px; display: none; }
+        .idm-value { font-size: 1.8em; font-weight: bold; color: #27ae60; word-break: break-all; margin: 10px 0; }
+        .note { font-size: 0.85em; color: #7f8c8d; margin-top: 5px; background: #fff3cd; padding: 5px; border-radius: 4px; border: 1px solid #ffeeba; color: #856404;}
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>📡 WebUSB FeliCa Reader</h2>
-    <div class="target-info">Target Service: 0x898F / Block: 0</div>
+    <h2>📱 Android Web NFC</h2>
+    <div class="target-info">スマホの背面にカードをかざしてください</div>
     
-    <button id="connectBtn">PaSoRiに接続して読み取る</button>
+    <button id="scanBtn">NFC読み取り開始</button>
     
     <div id="resultArea" class="result-box">
-        <div>読み取り結果 (Big Endian)</div>
-        <div class="balance"><span id="balanceValue">---</span></div>
-        <div style="font-size:0.8em;">Raw: <span id="rawHex"></span></div>
+        <div>検知したIDm (UID)</div>
+        <div class="idm-value" id="idmValue">---</div>
+        
+        <div class="note">
+            ⚠️ Web NFC APIの制約により、AndroidブラウザからはSuica等の残高データ(Block Data)にはアクセスできません。<br>
+            IDm（カード固有番号）のみ表示しています。
+        </div>
     </div>
 
     <div id="log"></div>
 </div>
 
 <script>
-    let device = null;
-    const SONY_VENDOR_ID = 0x054C;
-    const RCS380_PRODUCT_ID = 0x06C3;
+    const logEl = document.getElementById('log');
+    const scanBtn = document.getElementById('scanBtn');
+    let ndef = null;
+    let abortController = null;
 
     // ログ表示用
     function log(msg) {
-        const el = document.getElementById('log');
-        el.innerHTML += `> ${msg}<br>`;
-        el.scrollTop = el.scrollHeight;
+        logEl.innerHTML += `> ${msg}<br>`;
+        logEl.scrollTop = logEl.scrollHeight;
         console.log(msg);
     }
 
-    // 配列を16進文字列に変換
-    function toHex(dataView) {
-        return [...new Uint8Array(dataView.buffer || dataView)]
-            .map(b => b.toString(16).padStart(2, '0').toUpperCase())
-            .join(' ');
+    // Web NFC APIのサポート確認
+    if (!('NDEFReader' in window)) {
+        log("❌ このブラウザはWeb NFCをサポートしていません。<br>AndroidのChromeを使用してください。");
+        scanBtn.disabled = true;
+        scanBtn.textContent = "非対応ブラウザです";
     }
 
-    document.getElementById('connectBtn').addEventListener('click', async () => {
+    scanBtn.addEventListener('click', async () => {
+        // 既にスキャン中なら停止するトグル動作
+        if (abortController) {
+            abortController.abort();
+            abortController = null;
+            scanBtn.textContent = "NFC読み取り開始";
+            scanBtn.style.background = "#3498db";
+            log("スキャンを停止しました。");
+            return;
+        }
+
         try {
-            // 1. デバイス接続
-            device = await navigator.usb.requestDevice({ filters: [{ vendorId: SONY_VENDOR_ID }] });
-            await device.open();
-            await device.selectConfiguration(1);
-            await device.claimInterface(0);
-            log(`接続完了: ${device.productName}`);
+            abortController = new AbortController();
+            ndef = new NDEFReader();
 
-            // 2. FeliCa Polling (カード捕捉)
-            // System Code: FFFF (Wildcard), TimeSlot: 0
-            const pollingCmd = [0x00, 0xFF, 0xFF, 0x00, 0x00]; 
-            const pollingRes = await sendFeliCaCommand(pollingCmd);
+            // スキャン開始
+            await ndef.scan({ signal: abortController.signal });
             
-            if (!pollingRes || pollingRes.getUint8(0) === 0) {
-                throw new Error("Polling失敗: カードが見つかりません");
-            }
-            
-            // IDm取得 (Pollingレスポンスの2バイト目から8バイト分)
-            // Response format: [ResponseCode(1)] [IDm(8)] [PMm(8)] ...
-            const idm = new Uint8Array(pollingRes.buffer.slice(2, 10));
-            log(`IDm検知: ${toHex(idm)}`);
+            log("📡 スキャン中... カードを背面に密着させてください");
+            scanBtn.textContent = "スキャン停止";
+            scanBtn.style.background = "#e74c3c"; // 停止ボタン色に変更
 
-            // 3. Read Without Encryption (読み取り)
-            // Service Code: 0x898F (Little Endian -> 8F 89)
-            // Block: 0
-            const serviceCode = [0x8F, 0x89]; 
-            const blockList = [0x80, 0x00]; // 2byte block list element (Access Mode:0, Service Index:0, Block:0)
+            // 読み取りエラー時
+            ndef.onreadingerror = () => {
+                log("⚠️ 読み取りエラー: カードを正しく認識できませんでした。もう一度かざしてください。");
+            };
 
-            // Cmd(06) + IDm(8) + NumService(1) + ServiceCode(2) + NumBlock(1) + BlockList(2)
-            const readCmd = new Uint8Array([
-                0x06, 
-                ...idm, 
-                0x01, // サービス数
-                ...serviceCode, 
-                0x01, // ブロック数
-                ...blockList
-            ]);
-
-            const readRes = await sendFeliCaCommand(readCmd);
-
-            // レスポンス解析
-            // Format: [ResponseCode(1)] [IDm(8)] [Status1(1)] [Status2(1)] [BlockNum(1)] [BlockData(16*n)]
-            if (readRes.getUint8(10) === 0x00 && readRes.getUint8(11) === 0x00) {
-                // 成功ステータス
-                const blockData = new DataView(readRes.buffer.slice(13, 13 + 16));
-                const byte0 = blockData.getUint8(0);
-                const byte1 = blockData.getUint8(1);
+            // 読み取り成功時
+            ndef.onreading = event => {
+                const serialNumber = event.serialNumber; // IDm (xx:xx:xx...)
+                const formattedIdm = serialNumber.toUpperCase().replace(/:/g, ' ');
                 
-                // Big Endian計算 (byte0 * 256 + byte1)
-                const val = (byte0 * 256) + byte1;
+                log(`✅ 読み取り成功! IDm: ${formattedIdm}`);
                 
-                document.getElementById('balanceValue').textContent = val.toLocaleString();
-                document.getElementById('rawHex').textContent = toHex(blockData).substring(0, 5) + "...";
+                document.getElementById('idmValue').textContent = formattedIdm;
                 document.getElementById('resultArea').style.display = 'block';
-                log(`読み取り成功! Raw: ${toHex(blockData)}`);
-            } else {
-                throw new Error(`読み取りエラー (Status: ${readRes.getUint8(10).toString(16)} ${readRes.getUint8(11).toString(16)})`);
-            }
+                
+                // 音や振動でフィードバック（Androidの設定依存）
+                if (navigator.vibrate) navigator.vibrate(200);
+            };
 
-        } catch (e) {
-            log(`エラー: ${e.message}`);
-            alert("エラーが発生しました。\n" + e.message);
-        } finally {
-            if (device && device.opened) {
-                await device.close();
-            }
+        } catch (error) {
+            log(`❌ エラー: ${error.message}`);
+            abortController = null;
+            scanBtn.textContent = "NFC読み取り開始";
+            scanBtn.style.background = "#3498db";
         }
     });
-
-    // PaSoRi RC-S380への低レベルコマンド送信ラッパー
-    async function sendFeliCaCommand(commandBytes) {
-        if (!device) return null;
-
-        // RC-S380用のヘッダ構築 (transparent command)
-        // PC -> Reader: [Header] [FeliCa Command]
-        const dataLen = commandBytes.length;
-        // S380 specific command wrapper for "Communicate Thru"
-        const wrapper = new Uint8Array(dataLen + 5);
-        // Header for "send data to card"
-        wrapper.set([0xFF, 0x50, 0x00, 0x00, 0x02], 0); 
-        // 本来はもっと複雑なパケット構造ですが、S380の簡易モードまたは透過送信を想定
-        // ※厳密にはACKチェックなどが必要ですが、簡略化しています
-        
-        /* * 注意: RC-S380のWebUSB制御は公式仕様が公開されておらず、
-         * 一般的な「nfc-felica」ライブラリ等の挙動を模倣する必要があります。
-         * ここでは単純化のため、「FeliCaコマンドパケットそのもの」を作成し、
-         * 必要なチェックサムなどを付与して送信するロジックが必要です。
-         * * 以下は、JavaScriptのみで完結させるための簡易ドライバロジックです。
-         */
-
-        // 本当に送信するパケット（Len + Command）
-        const packet = new Uint8Array(commandBytes.length + 1);
-        packet[0] = commandBytes.length + 1; // Length byte
-        packet.set(commandBytes, 1);
-
-        // RC-S380への送信 (Bulk Transfer Out)
-        // Endpoint 2 is usually OUT for S380
-        // 実際にはコマンドごとにAck待ちなどのシーケンス制御が必要ですが、
-        // ここではライブラリに依存しない概念コードとして記述します。
-        
-        // ※実用には 'web-nfc-felica' 等のnpmライブラリの使用を強く推奨します。
-        // このコード単体では、S380の初期化シーケンスが不足しているため
-        // 環境によっては動作しない可能性があります。
-        
-        // ここでは「送信すべきバイナリデータ」の構築ロジックを示しました。
-        // 実装時は https://github.com/google/web-nfc-felica などを参考にしてください。
-        
-        // 簡易的な実装の代わりに、以下のようにエラーを投げます
-        log("注意: 完全なドライバ実装は長大になるため、外部ライブラリが必要です。");
-        log("送信しようとしたコマンド: " + toHex(packet));
-        
-        // 開発用モック（実際にカードがあるていでレスポンスを返す）
-        // ------------------------------------------------
-        // Pollingの場合
-        if (commandBytes[0] === 0x00) {
-             // Dummy IDm response
-             const dummyRes = new Uint8Array([0x1D, 0x01, 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-             return new DataView(dummyRes.buffer);
-        }
-        // Readの場合
-        if (commandBytes[0] === 0x06) {
-             // Dummy Block Data (02 DA ...)
-             const dummyRes = new Uint8Array([
-                 0x1D, 0x07, 
-                 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, // IDm
-                 0x00, 0x00, // Status Flag (Success)
-                 0x01, // Block Num
-                 0x02, 0xDA, 0x70, 0x00, 0x00, 0x00, 0x00, 0x00, // Data
-                 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-             ]);
-             return new DataView(dummyRes.buffer);
-        }
-        // ------------------------------------------------
-        
-        return null;
-    }
 </script>
 </body>
 </html>
